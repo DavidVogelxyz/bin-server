@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+# Name:     certbot-renew
+# Author:   David Vogel <david@davidvogel.xyz>
+# Date:     2026 Jan 3, Sat
+# License:  GPL v3.0
+# Desc:     `certbot-renew` renews Let's Encrypt certificates.
+
+# If certs expire in less than `RENEW_TIME`, renew the certs
+RENEW_TIME=28
+
+CERT_DIR="/etc/letsencrypt/live/*/fullchain.pem"
+
+UFW_RULES=(
+    "allow to any port 80 proto tcp"
+    "allow to any port 443"
+)
+
+# Prints provided message to STDERR; then, exits with return code `1`
+error() {
+    echo "$1" >&2 \
+        && exit 1
+}
+
+dep_check() {
+    if ! [[ $(command -v certbot) ]]; then
+        error "[ERROR]: \`certbot\` does not appear to be installed. Exiting now."
+    fi
+}
+
+check_cert() {
+    while read -r line; do
+        local DATE_CERT="${line//notAfter=}"
+        read -r m d t y tz <<< "$DATE_CERT"
+        DATE_CERT="$(($(date -d "$m $d $y" +%s) / 86400))"
+    done < <(openssl x509 -in "$1" -noout -enddate)
+
+    if ! [[ "$DATE_CERT" ]]; then
+        echo "[WARN]: Could not read the expiration date for \"$1\"."
+        return 1
+    fi
+
+    if (((DATE_CERT - DATE_TODAY) > RENEW_TIME )); then
+        echo "[INFO]: $1 expires in more than $RENEW_TIME days."
+    else
+        echo "[INFO]: $1 expires in less than $RENEW_TIME days."
+        echo -e "[INFO]: Attempting to renew certs...\n"
+
+        open_firewall
+        trap cleanup exit
+        echo -e "[INFO]: Script will delete temporary UFW rules after renewal.\n"
+
+        renew_certs
+    fi
+}
+
+open_firewall() {
+    if ! [[ $(command -v ufw) ]]; then
+        return 0
+    else
+        local count="$((${#UFW_RULES[@]} - 1))"
+
+        for ((i=$count; i >= 0; i--)); do
+            local ufw_command="sudo ufw ${UFW_RULES[i]}"
+            echo "[INFO]: UFW rule \"${UFW_RULES[i]}\" was temporarily added."
+            local OUTPUT="$($ufw_command)"
+
+            if [[ "$OUTPUT" =~ "Skipping" ]]; then
+                unset UFW_RULES[i]
+            fi
+        done
+
+        UFW_RULES=("${UFW_RULES[@]}")
+    fi
+}
+
+cleanup() {
+    if ! [[ $(command -v ufw) ]]; then
+        return 0
+    else
+        for ((i=0; i < "${#UFW_RULES[@]}"; i++)); do
+            local ufw_command="sudo ufw delete ${UFW_RULES[i]}"
+            $ufw_command > /dev/null \
+                && echo "[INFO]: UFW rule \"${UFW_RULES[i]}\" was deleted."
+        done
+    fi
+
+    echo "[INFO]: Cleanup operations completed successfully!"
+}
+
+renew_certs() {
+    certbot renew -q
+    echo -e "[INFO]: Certificates renewed successfully!\n"
+    exit 0
+}
+
+main() {
+    dep_check
+
+    local DATE_TODAY="$(($(date +%s) / 86400))"
+    local CERT_FILES=($CERT_DIR)
+    local NUM_CERTS="${#CERT_FILES[@]}"
+
+    # Check the Let's Encrypt SSL certificates
+    for ((i=0; i < $NUM_CERTS; i++)); do
+        check_cert "${CERT_FILES[i]}"
+    done
+
+    # If scripts calls the functions below, there were no certs to renew
+    echo "[INFO]: No certificates were ready to be renewed."
+    exit 0
+}
+
+main
