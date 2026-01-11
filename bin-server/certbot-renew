@@ -36,14 +36,16 @@ check_cert() {
     done < <(openssl x509 -in "$1" -noout -enddate)
 
     if ! [[ "$DATE_CERT" ]]; then
-        echo "[WARN]: Could not read the expiration date for \"$1\"."
+        echo "[WARN]: Could not read the expiration date for \`$1\`."
         return 1
     fi
 
-    if (((DATE_CERT - DATE_TODAY) > RENEW_TIME )); then
-        echo "[INFO]: $1 expires in more than $RENEW_TIME days."
+    local TIME_REMAINING="$((DATE_CERT - DATE_TODAY))"
+
+    if ((TIME_REMAINING > RENEW_TIME )); then
+        echo "[INFO]: \`$1\` expires in $TIME_REMAINING days, which is greater than $RENEW_TIME days."
     else
-        echo "[INFO]: $1 expires in less than $RENEW_TIME days."
+        echo "[INFO]: \`$1\` expires in $TIME_REMAINING days, which is fewer than $RENEW_TIME days."
         echo -e "[INFO]: Attempting to renew certs...\n"
 
         open_firewall
