@@ -22,9 +22,13 @@ error() {
         && exit 1
 }
 
+log_stamp() {
+    date +"%Y %b %e %T:"
+}
+
 dep_check() {
     if ! [[ $(command -v certbot) ]]; then
-        error "[ERROR]: \`certbot\` does not appear to be installed. Exiting now."
+        error "$(log_stamp) [ERROR]: \`certbot\` does not appear to be installed. Exiting now."
     fi
 }
 
@@ -36,21 +40,21 @@ check_cert() {
     done < <(openssl x509 -in "$1" -noout -enddate)
 
     if ! [[ "$DATE_CERT" ]]; then
-        echo "[WARN]: Could not read the expiration date for \`$1\`."
+        echo "$(log_stamp) [WARN]: Could not read the expiration date for \`$1\`."
         return 1
     fi
 
     local TIME_REMAINING="$((DATE_CERT - DATE_TODAY))"
 
     if ((TIME_REMAINING > RENEW_TIME )); then
-        echo "[INFO]: \`$1\` expires in $TIME_REMAINING days, which is greater than $RENEW_TIME days."
+        echo "$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is greater than $RENEW_TIME days."
     else
-        echo "[INFO]: \`$1\` expires in $TIME_REMAINING days, which is fewer than $RENEW_TIME days."
-        echo -e "[INFO]: Attempting to renew certs...\n"
+        echo "$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is fewer than $RENEW_TIME days."
+        echo -e "$(log_stamp) [INFO]: Attempting to renew certs...\n"
 
         open_firewall
         trap cleanup exit
-        echo -e "[INFO]: Script will delete temporary UFW rules after renewal.\n"
+        echo -e "$(log_stamp) [INFO]: Script will delete temporary UFW rules after renewal.\n"
 
         renew_certs
     fi
@@ -64,7 +68,7 @@ open_firewall() {
 
         for ((i=$count; i >= 0; i--)); do
             local ufw_command="sudo ufw ${UFW_RULES[i]}"
-            echo "[INFO]: UFW rule \"${UFW_RULES[i]}\" was temporarily added."
+            echo "$(log_stamp) [INFO]: UFW rule \"${UFW_RULES[i]}\" was temporarily added."
             local OUTPUT="$($ufw_command)"
 
             if [[ "$OUTPUT" =~ "Skipping" ]]; then
@@ -83,16 +87,16 @@ cleanup() {
         for ((i=0; i < "${#UFW_RULES[@]}"; i++)); do
             local ufw_command="sudo ufw delete ${UFW_RULES[i]}"
             $ufw_command > /dev/null \
-                && echo "[INFO]: UFW rule \"${UFW_RULES[i]}\" was deleted."
+                && echo "$(log_stamp) [INFO]: UFW rule \"${UFW_RULES[i]}\" was deleted."
         done
     fi
 
-    echo "[INFO]: Cleanup operations completed successfully!"
+    echo "$(log_stamp) [INFO]: Cleanup operations completed successfully!"
 }
 
 renew_certs() {
     certbot renew -q
-    echo -e "[INFO]: Certificates renewed successfully!\n"
+    echo -e "$(log_stamp) [INFO]: Certificates renewed successfully!\n"
     exit 0
 }
 
@@ -109,7 +113,7 @@ main() {
     done
 
     # If scripts calls the functions below, there were no certs to renew
-    echo "[INFO]: No certificates were ready to be renewed."
+    echo "$(log_stamp) [INFO]: No certificates were ready to be renewed."
     exit 0
 }
 
