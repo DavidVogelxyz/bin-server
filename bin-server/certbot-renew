@@ -32,34 +32,6 @@ dep_check() {
     fi
 }
 
-check_cert() {
-    while read -r line; do
-        local DATE_CERT="${line//notAfter=}"
-        read -r m d t y tz <<< "$DATE_CERT"
-        DATE_CERT="$(($(date -d "$m $d $y" +%s) / 86400))"
-    done < <(openssl x509 -in "$1" -noout -enddate)
-
-    if ! [[ "$DATE_CERT" ]]; then
-        echo "$(log_stamp) [WARN]: Could not read the expiration date for \`$1\`."
-        return 1
-    fi
-
-    local TIME_REMAINING="$((DATE_CERT - DATE_TODAY))"
-
-    if ((TIME_REMAINING > RENEW_TIME )); then
-        echo "$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is greater than $RENEW_TIME days."
-    else
-        echo "$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is fewer than $RENEW_TIME days."
-        echo -e "$(log_stamp) [INFO]: Attempting to renew certs...\n"
-
-        open_firewall
-        trap cleanup exit
-        echo -e "$(log_stamp) [INFO]: Script will delete temporary UFW rules after renewal.\n"
-
-        renew_certs
-    fi
-}
-
 open_firewall() {
     if ! [[ $(command -v ufw) ]]; then
         return 0
@@ -98,6 +70,34 @@ renew_certs() {
     certbot renew -q
     echo -e "$(log_stamp) [INFO]: Certificates renewed successfully!\n"
     exit 0
+}
+
+check_cert() {
+    while read -r line; do
+        local DATE_CERT="${line//notAfter=}"
+        read -r m d t y tz <<< "$DATE_CERT"
+        DATE_CERT="$(($(date -d "$m $d $y" +%s) / 86400))"
+    done < <(openssl x509 -in "$1" -noout -enddate)
+
+    if ! [[ "$DATE_CERT" ]]; then
+        echo "$(log_stamp) [WARN]: Could not read the expiration date for \`$1\`."
+        return 1
+    fi
+
+    local TIME_REMAINING="$((DATE_CERT - DATE_TODAY))"
+
+    if ((TIME_REMAINING > RENEW_TIME )); then
+        echo "$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is greater than $RENEW_TIME days."
+    else
+        echo "$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is fewer than $RENEW_TIME days."
+        echo -e "$(log_stamp) [INFO]: Attempting to renew certs...\n"
+
+        open_firewall
+        trap cleanup exit
+        echo -e "$(log_stamp) [INFO]: Script will delete temporary UFW rules after renewal.\n"
+
+        renew_certs
+    fi
 }
 
 main() {
