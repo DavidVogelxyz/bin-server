@@ -89,12 +89,12 @@ check_cert() {
     if ((TIME_REMAINING > RENEW_TIME )); then
         echo "$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is greater than $RENEW_TIME days."
     else
-        echo "$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is fewer than $RENEW_TIME days."
-        echo -e "$(log_stamp) [INFO]: Attempting to renew certs...\n"
+        echo "\n$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is fewer than $RENEW_TIME days."
+        echo -e "$(log_stamp) [INFO]: Attempting to renew certs..."
 
         open_firewall
         trap cleanup exit
-        echo -e "$(log_stamp) [INFO]: Script will delete temporary UFW rules after renewal.\n"
+        echo -e "$(log_stamp) [INFO]: Script will delete temporary UFW rules after renewal."
 
         renew_certs
     fi
