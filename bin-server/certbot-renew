@@ -6,15 +6,14 @@
 # License:  GPL v3.0
 # Desc:     `certbot-renew` renews Let's Encrypt certificates.
 
+CERT_DIR="/etc/letsencrypt/live/*/fullchain.pem"
+UFW_RULES_FILE="/etc/ufw/user.rules"
+
 # If certs expire in less than `RENEW_TIME`, renew the certs
 RENEW_TIME=28
 
-CERT_DIR="/etc/letsencrypt/live/*/fullchain.pem"
-
-UFW_RULES=(
-    "allow to any port 80 proto tcp"
-    "allow to any port 443"
-)
+# Assume open access to HTTP is disabled (checked during `open_firewall`)
+HTTP_ACCESS=false
 
 # Prints provided message to STDERR; then, exits with return code `1`
 error() {
@@ -26,29 +25,38 @@ log_stamp() {
     date +"%Y %b %e %T:"
 }
 
+root_check() {
+    if ! [[ "$(whoami)" == "root" ]]; then
+        error "$(log_stamp) [ERROR]: This script must be run with root privileges. Exiting now."
+    fi
+}
+
 dep_check() {
     if ! [[ $(command -v certbot) ]]; then
         error "$(log_stamp) [ERROR]: \`certbot\` does not appear to be installed. Exiting now."
     fi
 }
 
+# Checks for open access to port 80 (HTTP)
+# If port is open, do nothing
+# If port is not open, open it; then, ready it for close when script exits
 open_firewall() {
     if ! [[ $(command -v ufw) ]]; then
         return 0
     else
-        local count="$((${#UFW_RULES[@]} - 1))"
-
-        for ((i=$count; i >= 0; i--)); do
-            local ufw_command="sudo ufw ${UFW_RULES[i]}"
-            echo "$(log_stamp) [INFO]: UFW rule \"${UFW_RULES[i]}\" was temporarily added."
-            local OUTPUT="$($ufw_command)"
-
-            if [[ "$OUTPUT" =~ "Skipping" ]]; then
-                unset UFW_RULES[i]
+        # Check for open access to "port 80 TCP" (HTTP)
+        while read -r line; do
+            if [[ "$line" =~ "allow tcp 80 0.0.0.0/0 any 0.0.0.0/0" ]]; then
+                HTTP_ACCESS=true
+                break
             fi
-        done
+        done < "$UFW_RULES_FILE"
 
-        UFW_RULES=("${UFW_RULES[@]}")
+        # If "port 80 TCP (HTTP)" is closed, temporarily open it
+        if [[ "$HTTP_ACCESS" == false ]]; then
+            ufw allow to any port 80 proto tcp > /dev/null 2>&1
+            echo "$(log_stamp) [INFO]: UFW rule \"open port 80 TCP (HTTP)\" was temporarily added."
+        fi
     fi
 }
 
@@ -56,11 +64,10 @@ cleanup() {
     if ! [[ $(command -v ufw) ]]; then
         return 0
     else
-        for ((i=0; i < "${#UFW_RULES[@]}"; i++)); do
-            local ufw_command="sudo ufw delete ${UFW_RULES[i]}"
-            $ufw_command > /dev/null \
-                && echo "$(log_stamp) [INFO]: UFW rule \"${UFW_RULES[i]}\" was deleted."
-        done
+        if [[ "$HTTP_ACCESS" == false ]]; then
+            ufw delete allow to any port 80 proto tcp > /dev/null 2>&1
+            echo "$(log_stamp) [INFO]: UFW rule \"open port 80 TCP (HTTP)\" was deleted."
+        fi
     fi
 
     echo "$(log_stamp) [INFO]: Cleanup operations completed successfully!"
@@ -89,7 +96,7 @@ check_cert() {
     if ((TIME_REMAINING > RENEW_TIME )); then
         echo "$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is greater than $RENEW_TIME days."
     else
-        echo "\n$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is fewer than $RENEW_TIME days."
+        echo -e "\n$(log_stamp) [INFO]: \`$1\` expires in $TIME_REMAINING days, which is fewer than $RENEW_TIME days."
         echo -e "$(log_stamp) [INFO]: Attempting to renew certs..."
 
         open_firewall
@@ -101,6 +108,7 @@ check_cert() {
 }
 
 main() {
+    root_check
     dep_check
 
     local DATE_TODAY="$(($(date +%s) / 86400))"
